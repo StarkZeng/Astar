@@ -111,11 +111,11 @@ function _checkNode(nodeX,nodeY,targetNode,parentNode,closeMap,openList)
 					v.parent_id = parentNode.id;
 					v.h = parentNode.h + 1;
 					v.f = newF;
+					table.sort(openList,function(n1,n2)
+						return n1.f > n2.f;
+					end)
 				end
-
-				table.sort(openList,function(n1,n2)
-					return n1.f > n2.f;
-				end)
+				
 				break;
 			end
 		end
