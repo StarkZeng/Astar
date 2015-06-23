@@ -77,6 +77,8 @@ function initAllNode()
 			allNode[id] = newNode(id,row,colunm);
 
 			if(allNode[id].isObstruction)then ---这里预先记录下阻挡的点 避免每一次计算
+				--这个结构可以优化掉 参考后面写得C语言版本 originalCloseMap[id] = parent_id 就可以了
+				--C语言里面有链表 回溯路径时可以直接找到父节点 lua里面通过MAP去找 需要保存节点的parent_id
 				originalCloseMap[id] = {
 					x = row;
 					y = colunm;
