@@ -38,40 +38,107 @@ typedef struct searchNode
 	struct searchNode* parent;
 	struct searchNode* next;
 	struct searchNode* prev;
+
+	struct searchNode* pPoolNext;//仅仅内存 pool 使用,
 }* pSearchNode;
 
-/*
-typedef struct searchNodeList
-{
-	pSearchNode self;
-	struct searchNodeList* next;
-}* pSearchNodeList;*/
 
 pNode* allNode;
-pSearchNode* originalCloseMap;
+char* originalCloseMap;
+
+//node pool list
+//Note:这个list只有实现一个单向链表就OK了,不用管prev.
+//pFreeNodeHead/pUsingNodeHead 用pPoolNext标示下一个node 因为next被使用了
+pSearchNode pFreeNodeHead = NULL; 
+pSearchNode pUsingNodeHead = NULL;
 
 pNode newNode(short id,short x,short y,bool isObstruction)
 {
+
 	pNode node= (pNode)malloc(sizeof(struct node));
 	node->id = id;
 	node->x = x;
 	node->y = y;
 	node->isObstruction = isObstruction;
-
 	return node;
 }
 
 
 pSearchNode newSearchNode(short id,short x,short y)
 {
-	pSearchNode node= (pSearchNode)malloc(sizeof(struct searchNode));
+
+	pSearchNode node;
+
+	if(pFreeNodeHead != NULL)//取POOL
+	{
+		//printf("get node from pool\n");
+		node = pFreeNodeHead;//从头部取一个node
+		pFreeNodeHead = pFreeNodeHead->pPoolNext;
+	}
+	else//Pool已经没有node了
+	{
+		//printf("get node from malloc\n");
+		node = (pSearchNode)malloc(sizeof(struct searchNode));
+	}
+
 	node->x = x;
 	node->y = y;
 	node->g = node->g = node->f = 0;
 	node->id = id;
 	node->prev = node->next = node->parent = NULL;
+	node->pPoolNext = NULL;
+
+	if(pUsingNodeHead == NULL)
+	{
+		pUsingNodeHead = node;
+	}
+	else
+	{
+		node->pPoolNext = pUsingNodeHead;//把这个节点加到使用node list的头部
+		pUsingNodeHead = node;
+	}
+
 
 	return node;
+}
+
+void FreeNodeToPool()
+{
+	if(pUsingNodeHead == NULL)
+	{
+		return;
+	}
+
+	if(pFreeNodeHead == NULL)
+	{
+		pFreeNodeHead = pUsingNodeHead;
+		pUsingNodeHead = NULL;
+		return;
+	}
+
+	pSearchNode p = pFreeNodeHead;
+	//这里有2点可以考虑优化 1.如果是循环链表 就没必要遍历这一次了 因为知道"尾巴"在哪里 ,直接加到后面就OK
+	//2.到底是遍历pFreeNodeHead好 还是遍历pUsingNodeHead好,因为只要知道一个的"尾巴"就OK了
+	while(NULL != p->pPoolNext)
+	{
+		p=p->pPoolNext;
+	}
+
+	p->pPoolNext = pUsingNodeHead;
+	pUsingNodeHead = NULL;
+}
+
+void FreeAllSearchNode() //调用这个之前保证所有节点都在 free list[pFreeNodeHead]里面
+{
+	pSearchNode p = pFreeNodeHead;
+	while(NULL != p)
+	{
+		p = pFreeNodeHead->pPoolNext;
+		FREE(pFreeNodeHead);
+		pFreeNodeHead = p;
+	}
+
+	printf("Free all search node\n");
 }
 
 pSearchNode addNodeToList(pSearchNode pHead,pSearchNode node)
@@ -143,7 +210,7 @@ pSearchNode removeNodeFromList(pSearchNode pHead,short nodeId)
 void initAllNode()
 {
 	allNode = (pNode*)malloc(sizeof(pNode) * TOTAL_NUM);
-	originalCloseMap = (pSearchNode*)malloc(sizeof(pSearchNode) * TOTAL_NUM);
+	originalCloseMap = (char*)malloc(sizeof(char) * TOTAL_NUM);
 	for (int colunm = 0; colunm < COLUMN_NUM; ++colunm)
 	{
 		for (int row = 0; row < ROW_NUM; ++row)
@@ -152,11 +219,11 @@ void initAllNode()
 			allNode[id] = newNode(id,row,colunm,false);
 			if(allNode[id]->isObstruction)
 			{
-				originalCloseMap[id] = newSearchNode(id,row,colunm);
+				originalCloseMap[id] = 1;
 			}
 			else
 			{
-				originalCloseMap[id] = NULL;
+				originalCloseMap[id] = 0;
 			}
 		}
 	}
@@ -166,7 +233,7 @@ bool _checkNode( short x
 				,short y
 				,pSearchNode targetNode
 				,pSearchNode parentNode
-				,pSearchNode* closeMap
+				,char* closeMap
 				,pSearchNode pHead)
 {
 	short nodeId = x + y * COLUMN_NUM;
@@ -176,7 +243,7 @@ bool _checkNode( short x
 		return true;
 	}
 
-	if(closeMap[nodeId] == NULL)//未在关闭列表中 不然直接跳过
+	if(closeMap[nodeId] == 0)//未在关闭列表中 不然直接跳过
 	{
 		bool isExistInOpenList = false;//是否在openlist中
 
@@ -222,7 +289,7 @@ bool _checkNode( short x
 	return false;
 }
 
-void _findPath(pSearchNode pHead,pSearchNode* closeMap,pSearchNode targetNode)
+void _findPath(pSearchNode pHead,char* closeMap,pSearchNode targetNode)
 {
 	ASSERT(pHead!=NULL,"pHead is NULL");
 	ASSERT(closeMap!=NULL,"closeMap is NULL");
@@ -242,8 +309,8 @@ void _findPath(pSearchNode pHead,pSearchNode* closeMap,pSearchNode targetNode)
 			return;
 		}
 		removeNodeFromList(pHead,curNode->id);
-		ASSERT(closeMap[curNode->id] == NULL,"a node in open list && close map both");
-		closeMap[curNode->id] = curNode;
+		ASSERT(closeMap[curNode->id] == 0,"a node in open list && close map both");
+		closeMap[curNode->id] = 1;
 		bool isFind = false;
 		//左上
 		if(curNode->x > 0 && curNode->y > 0)
@@ -276,12 +343,14 @@ void _findPath(pSearchNode pHead,pSearchNode* closeMap,pSearchNode targetNode)
 		//左边
 		if(!isFind && curNode->x> 0)
 			isFind = _checkNode(curNode->x- 1,curNode->y,targetNode,curNode,closeMap,pHead);
+
 		if(isFind)//找到路径
 			break;
 
 	} while (true);
 
 
+	//test start
 	//测试代码 在console下画出路径
 	int mapSize = sizeof(char) * TOTAL_NUM;
 	char* pathMap = (char*) malloc(mapSize);
@@ -338,12 +407,15 @@ void _findPath(pSearchNode pHead,pSearchNode* closeMap,pSearchNode targetNode)
 	}
 
 	FREE(pathMap);
+	//test End
+
+	FreeNodeToPool();
 }
 
 void findPath(short startId,short targetId)
 {
 	//关闭节点的MAP 空间换时间 这个MAP仅仅做查询和赋值操作
-	pSearchNode* closeMap = (pSearchNode*)malloc(sizeof(pSearchNode) * TOTAL_NUM);
+	char* closeMap = (char*)malloc(sizeof(char) * TOTAL_NUM);
 
 	//开放节点列表
 	pSearchNode pOpenHead = NULL;
@@ -351,15 +423,7 @@ void findPath(short startId,short targetId)
 
 	for (int id = 0; id < TOTAL_NUM; ++id)
 	{
-		if(originalCloseMap[id] != NULL)
-		{
-			
-			closeMap[id] = originalCloseMap[id];
-		}
-		else
-		{
-			closeMap[id] = NULL;
-		}
+		closeMap[id] = originalCloseMap[id];
 	}
 
 	pSearchNode curNode = newSearchNode(startId,allNode[startId]->x,allNode[startId]->y);
@@ -372,6 +436,8 @@ void findPath(short startId,short targetId)
 
 	pOpenHead = addNodeToList(NULL,curNode);
 	_findPath(pOpenHead,closeMap,targetNode);
+
+	FREE(closeMap);
 }
 
 
@@ -381,6 +447,21 @@ int main()
 	srand((unsigned)time(0));
 	initAllNode();
 	findPath(rand()%2500,rand()%2500);
-	//findPath(1,94);
+	findPath(rand()%2500,rand()%2500);
+	findPath(rand()%2500,rand()%2500);
+
+	//释放所有内存
+	FreeAllSearchNode();
+	for (int id = 0; id < TOTAL_NUM; ++id)
+	{
+		if(NULL != allNode[id])
+		{
+			FREE(allNode[id]);
+		}
+	}
+
+	FREE(allNode);
+	FREE(originalCloseMap);
+
 	return 0;
 }
