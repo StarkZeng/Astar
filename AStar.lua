@@ -2,14 +2,11 @@ math.randomseed(os.time())
 --------------------------------------------
 -- test code:
 --------------------------------------------
---50 x 50 node 
---id is : x + y * ROW_NUM
+local NODE_OBSTRUCTION = -1;
 local ROW_NUM = 50;
 local COLUNM_NUM = 50;
 local allNode = {};
 local originalCloseMap = {};
---local searchStartID = 0;--0~2500
---local searchFinishID = 2189;--0~2500
 
 
 local searchNodeCounter = 0;
@@ -75,19 +72,9 @@ function initAllNode()
 		for row = 0, ROW_NUM - 1  do
 			local id = row + colunm * COLUNM_NUM;
 			allNode[id] = newNode(id,row,colunm);
-
-			if(allNode[id].isObstruction)then ---这里预先记录下阻挡的点 避免每一次计算
-				--这个结构可以优化掉 参考后面写得C语言版本 originalCloseMap[id] = parent_id 就可以了
-				--C语言里面有链表 回溯路径时可以直接找到父节点 lua里面通过MAP去找 需要保存节点的parent_id
-				originalCloseMap[id] = {
-					x = row;
-					y = colunm;
-					h = 0;--从开始点到自己的距离
-					g = 0;--从自己到目标点的距离
-					f = 0;-- g + h;
-					parent_id = -1; --父节点ID
-					id = id;--自己的ID
-				};
+			---这里预先记录下阻挡的点 避免每一次计算 (NODE_OBSTRUCTION有阻挡,nil无阻挡)
+			if(allNode[id].isObstruction)then
+				originalCloseMap[id] = NODE_OBSTRUCTION;
 			end
 		end
 	end
@@ -96,9 +83,7 @@ end
 
 
 function _checkNode(nodeX,nodeY,targetNode,parentNode,closeMap,openList)
-	--print("check node ,",nodeX,nodeY);
 	local nodeId = nodeX + nodeY * COLUNM_NUM;
-	--print("nodeId ,",nodeId,targetNode.id);
 	if(nodeId == targetNode.id)then
 		print("find path! ");
 		return true;
@@ -149,7 +134,7 @@ function _findPath(openList,closeMap,targetId)
 		end
 		local targetNode = allNode[targetId];
 		assert(closeMap[curNode.id] == nil,"curNode.id : " .. curNode.id);
-		closeMap[curNode.id] = curNode;
+		closeMap[curNode.id] = curNode.parent_id;
 
 		for i,v in pairs(openList) do
 			if(v.id == curNode.id)then
@@ -204,78 +189,15 @@ function _findPath(openList,closeMap,targetId)
 		end
 	end
 
-	--[[ 以下方式使用递归实现 在特大地图上怕堆溢出 改为上面的循环
-	local curNode = openList[#openList];--默认openlist 最后那个是代价最低的
-	if(curNode == nil)then
-		print("can not find the path");
-		return nil;
-	end
-	local targetNode = allNode[targetId];
-	assert(closeMap[curNode.id] == nil,"curNode.id : " .. curNode.id);
-	closeMap[curNode.id] = curNode;
-
-	for i,v in pairs(openList) do
-		if(v.id == curNode.id)then
-			table.remove(openList,i);
-			break;
-		end
-	end
-	local isFind = false;
-
-	--左上
-	if(curNode.x > 0 and curNode.y > 0)then
-		isFind =  _checkNode(curNode.x-1,curNode.y-1,targetNode,curNode,closeMap,openList);
-	end
-
-	--正上
-	if(not isFind and curNode.y > 0)then
-		isFind = _checkNode(curNode.x,curNode.y-1,targetNode,curNode,closeMap,openList);
-	end
-
-	--右上
-	if(not isFind and (curNode.x < ROW_NUM - 1) and  curNode.y > 0 )then
-		isFind = _checkNode(curNode.x + 1,curNode.y - 1,targetNode,curNode,closeMap,openList);
-	end
-
-	--右边
-	if(not isFind and curNode.x < ROW_NUM - 1)then
-		isFind = _checkNode(curNode.x + 1,curNode.y,targetNode,curNode,closeMap,openList);
-	end
-
-	--右下
-	if(not isFind and curNode.x < ROW_NUM - 1 and curNode.y < COLUNM_NUM - 1)then
-		isFind = _checkNode(curNode.x + 1,curNode.y + 1,targetNode,curNode,closeMap,openList);
-	end
-
-	--下方
-	if(not isFind and curNode.y < COLUNM_NUM - 1)then
-		isFind = _checkNode(curNode.x,curNode.y + 1,targetNode,curNode,closeMap,openList);
-	end
-
-	--左下
-	if(not isFind and  curNode.x > 0 and   curNode.y < COLUNM_NUM - 1)then
-		isFind = _checkNode(curNode.x - 1,curNode.y + 1,targetNode,curNode,closeMap,openList);
-	end
-
-	--左边
-	if(not isFind and curNode.x > 0)then
-		isFind = _checkNode(curNode.x - 1,curNode.y,targetNode,curNode,closeMap,openList);
-	end
-
-	if(not isFind)then
-		_findPath(openList,closeMap,targetId);
-	else]]
 	pathMap = {};
 	pathMap[curNode.id] = true;
-	while(curNode.parent_id >= 0)do
-		--print("path:",curNode.id);
-		curNode = closeMap[curNode.parent_id];
-
-		pathMap[curNode.id] = true;
+	local parent_id = closeMap[curNode.id];
+	while(parent_id ~= nil and parent_id ~= NODE_OBSTRUCTION)do
+		print("path:",parent_id);
+		pathMap[parent_id] = true;
+		parent_id = closeMap[parent_id];
 	end
 	pathMap[targetId] = true;
-
-	--end
 end
 
 
@@ -287,9 +209,9 @@ function findPath(startId,targetId)
 	local openList = {};
 
 	for k,v in pairs(originalCloseMap) do
-		closeMap[k] = v;
+		closeMap[k] = v; --这里add node 的时候会保存当前点得父节点ID 用于回溯
 	end
-	--print("startId",startId);
+	
 	local currentNode = newSearchNode(startId,allNode[startId].x,allNode[startId].y);
 	local targetNode = allNode[targetId];
 	
